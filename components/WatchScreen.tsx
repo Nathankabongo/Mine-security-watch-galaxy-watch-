@@ -463,8 +463,8 @@ export default function WatchScreen() {
                 <div className="flex items-center gap-2">
                   <Signal className="w-4 h-4 text-blue-400" />
                   <div className="text-right">
-                    <div className="text-[10px] text-green-500 font-medium">CONNEXION</div>
-                    <div className="text-white text-xs font-bold">{data.connectionQuality}</div>
+                    <div className="text-[10px] text-green-500 font-medium">GATEWAY</div>
+                    <div className="text-white text-xs font-bold">3</div>
                   </div>
                 </div>
               </div>

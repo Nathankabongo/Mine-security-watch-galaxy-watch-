@@ -223,6 +223,72 @@ export default function WatchScreen() {
     }
   }
 
+  // Request GPS permission manually
+  const requestGpsPermission = useCallback(() => {
+    if (!navigator.geolocation) {
+      setData((prev) => ({ ...prev, gpsStatus: "error" }))
+      return
+    }
+    
+    setData((prev) => ({ ...prev, gpsStatus: "searching" }))
+    
+    // Clear previous watch if exists
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+    }
+    
+    // Start watching position again
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        const newLocation = { lat: latitude, lng: longitude }
+
+        setData((prev) => {
+          let newTotalDistance = prev.totalDistance
+
+          if (lastPositionRef.current) {
+            const distance = calculateDistance(
+              lastPositionRef.current.lat,
+              lastPositionRef.current.lng,
+              latitude,
+              longitude
+            )
+            if (distance > 2) {
+              newTotalDistance = prev.totalDistance + distance
+              lastPositionRef.current = newLocation
+            }
+          } else {
+            lastPositionRef.current = newLocation
+          }
+
+          let connectionQuality: "Bonne" | "Moyenne" | "Faible" = "Bonne"
+          if (accuracy > 50) connectionQuality = "Faible"
+          else if (accuracy > 20) connectionQuality = "Moyenne"
+
+          return {
+            ...prev,
+            location: newLocation,
+            totalDistance: Math.round(newTotalDistance),
+            gpsStatus: "active",
+            connectionQuality,
+          }
+        })
+      },
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          setData((prev) => ({ ...prev, gpsStatus: "denied" }))
+        } else {
+          setData((prev) => ({ ...prev, gpsStatus: "error" }))
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    )
+  }, [])
+
   const getGpsStatusText = () => {
     switch (data.gpsStatus) {
       case "active":
@@ -230,7 +296,7 @@ export default function WatchScreen() {
       case "searching":
         return "RECHERCHE..."
       case "denied":
-        return "GPS REFUSE"
+        return "ACTIVER GPS"
       case "error":
         return "GPS ERREUR"
     }
@@ -314,12 +380,19 @@ export default function WatchScreen() {
               </div>
 
               {/* Location Row */}
-              <div className="bg-zinc-900/80 rounded-xl p-2 border border-zinc-800 flex items-center justify-between">
+              <button
+                onClick={data.gpsStatus === "denied" || data.gpsStatus === "error" ? requestGpsPermission : undefined}
+                className={`bg-zinc-900/80 rounded-xl p-2 border border-zinc-800 flex items-center justify-between w-full text-left ${
+                  data.gpsStatus === "denied" || data.gpsStatus === "error" ? "cursor-pointer hover:bg-zinc-800 active:bg-zinc-700" : "cursor-default"
+                }`}
+              >
                 <div className="flex items-center gap-2">
                   {data.gpsStatus === "active" ? (
                     <MapPin className="w-4 h-4 text-green-500" />
+                  ) : data.gpsStatus === "searching" ? (
+                    <MapPin className="w-4 h-4 text-yellow-500 animate-pulse" />
                   ) : (
-                    <MapPinOff className="w-4 h-4 text-yellow-500" />
+                    <MapPinOff className="w-4 h-4 text-red-500" />
                   )}
                   <div>
                     <div className={`text-[10px] font-medium ${getGpsStatusColor()}`}>LOCALISATION</div>
@@ -328,6 +401,9 @@ export default function WatchScreen() {
                         ? `${data.location.lat.toFixed(5)}, ${data.location.lng.toFixed(5)}`
                         : getGpsStatusText()}
                     </div>
+                    {(data.gpsStatus === "denied" || data.gpsStatus === "error") && (
+                      <div className="text-[8px] text-yellow-400 mt-0.5">Appuyer pour activer</div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -337,7 +413,7 @@ export default function WatchScreen() {
                     <div className="text-white text-xs font-bold">{data.totalDistance} m</div>
                   </div>
                 </div>
-              </div>
+              </button>
 
               {/* Action Buttons Row */}
               <div className="flex items-center justify-center gap-4">

@@ -454,10 +454,10 @@ export default function WatchScreen() {
               {/* Bottom Status Row */}
               <div className="bg-zinc-900/80 rounded-xl p-2 border border-zinc-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Battery className="w-4 h-4 text-green-500" />
+                  <MapPin className="w-4 h-4 text-green-500" />
                   <div>
-                    <div className="text-[10px] text-green-500 font-medium">BATTERIE</div>
-                    <div className="text-white text-xs font-bold">{data.battery}%</div>
+                    <div className="text-[10px] text-green-500 font-medium">ZONE</div>
+                    <div className="text-white text-xs font-bold">Zone A</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

@@ -10,7 +10,6 @@ import {
   Wifi,
   Battery,
   Signal,
-  Clock,
   Navigation,
   Route,
   WifiOff,
@@ -470,13 +469,9 @@ export default function WatchScreen() {
               </div>
             </div>
 
-            {/* Bottom Time */}
+            {/* Bottom Name */}
             <div className="flex items-center justify-center gap-2 pb-2">
-              <Clock className="w-4 h-4 text-blue-400" />
-              <div>
-                <span className="text-[10px] text-zinc-400">HEURE</span>
-                <span className="text-white text-sm font-bold ml-2">{formatTime(time)}</span>
-              </div>
+              <div className="text-white text-sm font-bold">KABONGO NATHAN</div>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Heart,
   Activity,
@@ -13,32 +13,60 @@ import {
   Clock,
   Navigation,
   Route,
+  WifiOff,
+  MapPinOff,
 } from "lucide-react"
 
 interface WatchData {
   heartRate: number
   seismicHz: number
   dangerLevel: "NORMAL" | "ALERTE" | "CRITIQUE"
-  location: { lat: number; lng: number }
-  distance: number
+  location: { lat: number; lng: number } | null
+  totalDistance: number
   battery: number
   isConnected: boolean
   connectionQuality: "Bonne" | "Moyenne" | "Faible"
+  gpsStatus: "active" | "searching" | "error" | "denied"
+}
+
+// Calculate distance between two GPS coordinates using Haversine formula
+function calculateDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371e3 // Earth's radius in meters
+  const phi1 = (lat1 * Math.PI) / 180
+  const phi2 = (lat2 * Math.PI) / 180
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+  return R * c // Distance in meters
 }
 
 export default function WatchScreen() {
   const [time, setTime] = useState(new Date())
   const [sosPressed, setSosPressed] = useState(false)
   const [sosTimer, setSosTimer] = useState(0)
+  const lastPositionRef = useRef<{ lat: number; lng: number } | null>(null)
+  const watchIdRef = useRef<number | null>(null)
+  
   const [data, setData] = useState<WatchData>({
     heartRate: 88,
     seismicHz: 24.5,
     dangerLevel: "NORMAL",
-    location: { lat: -4.325, lng: 15.322 },
-    distance: 245,
+    location: null,
+    totalDistance: 0,
     battery: 82,
     isConnected: true,
     connectionQuality: "Bonne",
+    gpsStatus: "searching",
   })
 
   // Update time every second
@@ -47,13 +75,82 @@ export default function WatchScreen() {
     return () => clearInterval(timer)
   }, [])
 
-  // Simulate sensor data updates
+  // Real GPS tracking
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setData((prev) => ({ ...prev, gpsStatus: "error" }))
+      return
+    }
+
+    // Start watching position
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        const newLocation = { lat: latitude, lng: longitude }
+
+        setData((prev) => {
+          let newTotalDistance = prev.totalDistance
+
+          // Calculate distance from last position if we have one
+          if (lastPositionRef.current) {
+            const distance = calculateDistance(
+              lastPositionRef.current.lat,
+              lastPositionRef.current.lng,
+              latitude,
+              longitude
+            )
+            // Only add distance if it's significant (more than 2 meters) to filter GPS noise
+            if (distance > 2) {
+              newTotalDistance = prev.totalDistance + distance
+              lastPositionRef.current = newLocation
+            }
+          } else {
+            // First position recorded
+            lastPositionRef.current = newLocation
+          }
+
+          // Determine connection quality based on GPS accuracy
+          let connectionQuality: "Bonne" | "Moyenne" | "Faible" = "Bonne"
+          if (accuracy > 50) connectionQuality = "Faible"
+          else if (accuracy > 20) connectionQuality = "Moyenne"
+
+          return {
+            ...prev,
+            location: newLocation,
+            totalDistance: Math.round(newTotalDistance),
+            gpsStatus: "active",
+            connectionQuality,
+          }
+        })
+      },
+      (error) => {
+        console.log("[v0] GPS Error:", error.code, error.message)
+        if (error.code === error.PERMISSION_DENIED) {
+          setData((prev) => ({ ...prev, gpsStatus: "denied" }))
+        } else {
+          setData((prev) => ({ ...prev, gpsStatus: "error" }))
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    )
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+      }
+    }
+  }, [])
+
+  // Simulate other sensor data updates (heart rate, seismic)
   useEffect(() => {
     const interval = setInterval(() => {
       setData((prev) => {
         const newHeartRate = Math.max(60, Math.min(120, prev.heartRate + (Math.random() - 0.5) * 4))
         const newSeismicHz = Math.max(0, Math.min(100, prev.seismicHz + (Math.random() - 0.5) * 2))
-        const newDistance = prev.distance + Math.floor(Math.random() * 3)
 
         let dangerLevel: "NORMAL" | "ALERTE" | "CRITIQUE" = "NORMAL"
         if (newHeartRate > 110 || newSeismicHz > 50) dangerLevel = "ALERTE"
@@ -64,7 +161,6 @@ export default function WatchScreen() {
           heartRate: Math.round(newHeartRate),
           seismicHz: Math.round(newSeismicHz * 10) / 10,
           dangerLevel,
-          distance: newDistance,
         }
       })
     }, 3000)
@@ -80,12 +176,15 @@ export default function WatchScreen() {
 
   const handleSosEnd = useCallback(() => {
     if (sosTimer >= 3) {
-      // SOS triggered
-      alert("🚨 SOS ENVOYÉ! Les secours ont été alertés.")
+      // SOS triggered with real location
+      const locationText = data.location
+        ? `Position: ${data.location.lat.toFixed(5)}, ${data.location.lng.toFixed(5)}`
+        : "Position GPS non disponible"
+      alert(`SOS ENVOYE! Les secours ont ete alertes.\n${locationText}`)
     }
     setSosPressed(false)
     setSosTimer(0)
-  }, [sosTimer])
+  }, [sosTimer, data.location])
 
   // SOS timer
   useEffect(() => {
@@ -97,6 +196,14 @@ export default function WatchScreen() {
     }
     return () => clearInterval(interval)
   }, [sosPressed])
+
+  // Reset distance
+  const handleResetDistance = useCallback(() => {
+    setData((prev) => ({ ...prev, totalDistance: 0 }))
+    if (data.location) {
+      lastPositionRef.current = data.location
+    }
+  }, [data.location])
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("fr-FR", {
@@ -116,6 +223,30 @@ export default function WatchScreen() {
     }
   }
 
+  const getGpsStatusText = () => {
+    switch (data.gpsStatus) {
+      case "active":
+        return "GPS ACTIF"
+      case "searching":
+        return "RECHERCHE..."
+      case "denied":
+        return "GPS REFUSE"
+      case "error":
+        return "GPS ERREUR"
+    }
+  }
+
+  const getGpsStatusColor = () => {
+    switch (data.gpsStatus) {
+      case "active":
+        return "text-green-500"
+      case "searching":
+        return "text-yellow-500"
+      default:
+        return "text-red-500"
+    }
+  }
+
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
       {/* Watch Container */}
@@ -130,8 +261,14 @@ export default function WatchScreen() {
               </div>
               <div className="flex items-center justify-center gap-6 text-xs">
                 <div className="flex items-center gap-1">
-                  <Wifi className="w-4 h-4 text-green-500" />
-                  <span className="text-green-500 font-medium">CONNECTÉ</span>
+                  {data.isConnected ? (
+                    <Wifi className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <WifiOff className="w-4 h-4 text-red-500" />
+                  )}
+                  <span className={data.isConnected ? "text-green-500 font-medium" : "text-red-500 font-medium"}>
+                    {data.isConnected ? "CONNECTE" : "DECONNECTE"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Battery className="w-4 h-4 text-green-500" />
@@ -151,7 +288,7 @@ export default function WatchScreen() {
                     <span className="text-white font-bold text-lg">{data.heartRate}</span>
                   </div>
                   <div className="text-[10px] text-zinc-400">BPM</div>
-                  <div className="text-[8px] text-zinc-500">Fréquence cardiaque</div>
+                  <div className="text-[8px] text-zinc-500">Frequence cardiaque</div>
                 </div>
 
                 {/* Seismic Card */}
@@ -179,29 +316,39 @@ export default function WatchScreen() {
               {/* Location Row */}
               <div className="bg-zinc-900/80 rounded-xl p-2 border border-zinc-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-green-500" />
+                  {data.gpsStatus === "active" ? (
+                    <MapPin className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <MapPinOff className="w-4 h-4 text-yellow-500" />
+                  )}
                   <div>
-                    <div className="text-[10px] text-green-500 font-medium">LOCALISATION</div>
+                    <div className={`text-[10px] font-medium ${getGpsStatusColor()}`}>LOCALISATION</div>
                     <div className="text-white text-xs font-mono">
-                      {data.location.lat.toFixed(5)}, {data.location.lng.toFixed(5)}
+                      {data.location
+                        ? `${data.location.lat.toFixed(5)}, ${data.location.lng.toFixed(5)}`
+                        : getGpsStatusText()}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <PersonStanding className="w-4 h-4 text-green-500" />
                   <div className="text-right">
-                    <div className="text-[10px] text-green-500 font-medium">DÉPLACEMENT</div>
-                    <div className="text-white text-xs font-bold">{data.distance} m</div>
+                    <div className="text-[10px] text-green-500 font-medium">DEPLACEMENT</div>
+                    <div className="text-white text-xs font-bold">{data.totalDistance} m</div>
                   </div>
                 </div>
               </div>
 
               {/* Action Buttons Row */}
               <div className="flex items-center justify-center gap-4">
-                {/* GPS Button */}
-                <button className="bg-zinc-900/80 rounded-full p-2.5 border border-zinc-800 hover:bg-zinc-800 transition-colors">
-                  <Navigation className="w-4 h-4 text-zinc-400" />
-                  <span className="text-[8px] text-zinc-500 block mt-0.5">GPS</span>
+                {/* GPS Button - Reset distance */}
+                <button 
+                  onClick={handleResetDistance}
+                  className="bg-zinc-900/80 rounded-full p-2.5 border border-zinc-800 hover:bg-zinc-800 transition-colors"
+                  title="Reinitialiser le deplacement"
+                >
+                  <Navigation className={`w-4 h-4 ${data.gpsStatus === "active" ? "text-green-500" : "text-zinc-400"}`} />
+                  <span className={`text-[8px] block mt-0.5 ${getGpsStatusColor()}`}>GPS</span>
                 </button>
 
                 {/* SOS Button */}
